@@ -397,7 +397,7 @@ struct sched_entity {
 	/* rq on which this entity is (to be) queued: */
 	struct cfs_rq			*cfs_rq;
 	/* rq "owned" by this entity/group: */
-	struct cfs_rq			*my_q;
+	struct cfs_rq                   *my_q;
 #endif
 
 #ifdef CONFIG_SMP
@@ -424,8 +424,6 @@ struct sched_rt_entity {
 	struct sched_rt_entity		*parent;
 	/* rq on which this entity is (to be) queued: */
 	struct rt_rq			*rt_rq;
-	/* rq "owned" by this entity/group: */
-	struct rt_rq			*my_q;
 #endif
 } __randomize_layout;
 
