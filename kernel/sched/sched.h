@@ -2199,6 +2199,15 @@ int group_pull_rt_task(struct rt_rq *rt_rq);
 int group_push_rt_task(struct rt_rq *rt_rq);
 
 struct sched_rt_entity *pick_next_rt_entity(struct rq *rq, struct rt_rq *rt_rq);
+
+#ifdef CONFIG_RT_GROUP_SCHED
+void queue_push_from_group(struct rq *rq, struct rt_rq *rt_rq, int reason);
+void queue_pull_to_group(struct rq *rq, struct rt_rq *rt_rq);
+#else
+static inline void queue_push_from_group(struct rq *rq, struct rt_rq *rt_rq, int reason) {};
+static inline void queue_pull_to_group(struct rq *rq, struct rt_rq *rt_rq) {};
+#endif
+
 #if defined(CONFIG_RT_GROUP_SCHED) && defined(CONFIG_SMP)
 void dequeue_pushable_task(struct rt_rq *rt_rq, struct task_struct *p);
 #else
