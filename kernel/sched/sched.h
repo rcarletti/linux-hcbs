@@ -113,6 +113,8 @@ static inline void cpu_load_update_active(struct rq *this_rq) { }
  */
 #define DL_SCALE (10)
 
+unsigned long to_ratio(u64 period, u64 runtime);
+
 /*
  * These are the 'tuning knobs' of the scheduler:
  */
@@ -257,13 +259,8 @@ void __dl_add(struct dl_bw *dl_b, u64 tsk_bw, int cpus)
 	__dl_update(dl_b, -((s32)tsk_bw / cpus));
 }
 
-static inline
-bool __dl_overflow(struct dl_bw *dl_b, int cpus, u64 old_bw, u64 new_bw)
-{
-	return dl_b->bw != -1 &&
-	       dl_b->bw * cpus < dl_b->total_bw - old_bw + new_bw;
-}
 
+int dl_check_tg(unsigned long total);
 void dl_change_utilization(struct task_struct *p, u64 new_bw);
 extern void init_dl_bw(struct dl_bw *dl_b);
 extern int sched_dl_global_validate(void);
@@ -329,9 +326,14 @@ struct task_group {
 #endif
 
 #ifdef CONFIG_RT_GROUP_SCHED
-	struct sched_rt_entity **rt_se;
+	/*
+	 * The scheduling entities for the task group are managed as a single
+	 * sched_dl_entity, each of them sharing the same dl_bandwidth.
+	 */
+	struct sched_dl_entity **dl_se;
 	struct rt_rq **rt_rq;
 
+	struct dl_bandwidth dl_bandwidth;
 #endif
 
 	struct rcu_head rcu;
@@ -397,8 +399,8 @@ extern void unthrottle_cfs_rq(struct cfs_rq *cfs_rq);
 extern void free_rt_sched_group(struct task_group *tg);
 extern int alloc_rt_sched_group(struct task_group *tg, struct task_group *parent);
 extern void init_tg_rt_entry(struct task_group *tg, struct rt_rq *rt_rq,
-		struct sched_rt_entity *rt_se, int cpu,
-		struct sched_rt_entity *parent);
+		struct sched_dl_entity *rt_se, int cpu,
+		struct sched_dl_entity *parent);
 extern int sched_group_set_rt_runtime(struct task_group *tg, long rt_runtime_us);
 extern int sched_group_set_rt_period(struct task_group *tg, u64 rt_period_us);
 extern long sched_group_rt_runtime(struct task_group *tg);
@@ -430,6 +432,21 @@ static inline void set_task_rq_fair(struct sched_entity *se,
 struct cfs_bandwidth { };
 
 #endif	/* CONFIG_CGROUP_SCHED */
+
+static inline
+bool __dl_overflow(struct dl_bw *dl_b, int cpus, u64 old_bw, u64 new_bw)
+{
+	u64 dl_groups_root = 0;
+
+#ifdef CONFIG_RT_GROUP_SCHED
+	dl_groups_root = to_ratio(root_task_group.dl_bandwidth.dl_period,
+				  root_task_group.dl_bandwidth.dl_runtime);
+#endif
+	return dl_b->bw != -1 &&
+	       dl_b->bw * cpus < dl_b->total_bw - old_bw + new_bw
+					+ dl_groups_root * cpus;
+}
+
 
 /* CFS-related fields in a runqueue */
 struct cfs_rq {
@@ -536,18 +553,14 @@ struct rt_rq {
 #endif
 #ifdef CONFIG_SMP
 	unsigned long rt_nr_migratory;
-	unsigned long rt_nr_total;
 	int overloaded;
 	struct plist_head pushable_tasks;
 #endif /* CONFIG_SMP */
-	int rt_queued;
 
 #ifdef CONFIG_RT_GROUP_SCHED
-	unsigned long rt_nr_boosted;
-
-	struct rq *rq;
 	struct task_group *tg;
 #endif
+	struct rq *rq;
 };
 
 /* Deadline class' related fields in a runqueue */
@@ -556,6 +569,12 @@ struct dl_rq {
 	struct rb_root_cached root;
 
 	unsigned long dl_nr_running;
+
+#ifdef CONFIG_RT_GROUP_SCHED
+	unsigned long dl_nr_total;
+	struct rt_rq *rq_to_push_from;
+	struct rt_rq *rq_to_pull_to;
+#endif
 
 #ifdef CONFIG_SMP
 	/*
@@ -1197,7 +1216,8 @@ static inline void set_task_rq(struct task_struct *p, unsigned int cpu)
 
 #ifdef CONFIG_RT_GROUP_SCHED
 	p->rt.rt_rq  = tg->rt_rq[cpu];
-	p->rt.parent = tg->rt_se[cpu];
+	p->rt.parent = tg->dl_se[cpu];
+	p->dl.dl_rq  = &cpu_rq(cpu)->dl;
 #endif
 }
 
@@ -1543,7 +1563,6 @@ extern void init_dl_rq_bw_ratio(struct dl_rq *dl_rq);
 #define BW_SHIFT	20
 #define BW_UNIT		(1 << BW_SHIFT)
 #define RATIO_SHIFT	8
-unsigned long to_ratio(u64 period, u64 runtime);
 
 extern void init_entity_runnable_average(struct sched_entity *se);
 extern void post_init_entity_util_avg(struct sched_entity *se);
@@ -1595,6 +1614,7 @@ static inline void add_nr_running(struct rq *rq, unsigned count)
 
 static inline void sub_nr_running(struct rq *rq, unsigned count)
 {
+	BUG_ON(rq->nr_running < count);
 	rq->nr_running -= count;
 	/* Check if we still need preemption */
 	sched_update_tick_dependency(rq);
@@ -1953,6 +1973,71 @@ static inline void double_rq_unlock(struct rq *rq1, struct rq *rq2)
 
 #endif
 
+#ifdef CONFIG_RT_GROUP_SCHED
+static inline int is_dl_group(struct rt_rq *rt_rq)
+{
+	return rt_rq->tg != &root_task_group;
+}
+
+/*
+ * Return the scheduling entity of this group of tasks.
+ */
+static inline struct sched_dl_entity *dl_group_of(struct rt_rq *rt_rq)
+{
+	BUG_ON(!is_dl_group(rt_rq));
+
+	return rt_rq->tg->dl_se[cpu_of(rt_rq->rq)];
+}
+
+static inline struct task_struct *rt_task_of(struct sched_rt_entity *rt_se)
+{
+	return container_of(rt_se, struct task_struct, rt);
+}
+
+static inline struct rq *rq_of_rt_se(struct sched_rt_entity *rt_se)
+{
+	struct rt_rq *rt_rq = rt_se->rt_rq;
+
+	return rt_rq->rq;
+}
+
+static inline struct rt_rq *rt_rq_of_se(struct sched_rt_entity *rt_se)
+{
+	return rt_se->rt_rq;
+}
+#else
+static inline int is_dl_group(struct rt_rq *rt_rq)
+{
+	return 0;
+}
+
+static inline struct sched_dl_entity *dl_group_of(struct rt_rq *rt_rq)
+{
+	return NULL;
+}
+
+static inline struct task_struct *rt_task_of(struct sched_rt_entity *rt_se)
+{
+	return container_of(rt_se, struct task_struct, rt);
+}
+
+static inline struct rq *rq_of_rt_se(struct sched_rt_entity *rt_se)
+{
+	struct task_struct *p = rt_task_of(rt_se);
+
+	return task_rq(p);
+}
+
+static inline struct rt_rq *rt_rq_of_se(struct sched_rt_entity *rt_se)
+{
+	struct rq *rq = rq_of_rt_se(rt_se);
+
+	return &rq->rt;
+}
+#endif
+
+
+
 extern struct sched_entity *__pick_first_entity(struct cfs_rq *cfs_rq);
 extern struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq);
 
@@ -2109,3 +2194,28 @@ static inline unsigned long cpu_util_cfs(struct rq *rq)
 }
 
 #endif
+
+int group_pull_rt_task(struct rt_rq *rt_rq);
+int group_push_rt_task(struct rt_rq *rt_rq);
+
+struct sched_rt_entity *pick_next_rt_entity(struct rq *rq, struct rt_rq *rt_rq);
+#if defined(CONFIG_RT_GROUP_SCHED) && defined(CONFIG_SMP)
+void dequeue_pushable_task(struct rt_rq *rt_rq, struct task_struct *p);
+#else
+static inline
+void dequeue_pushable_task(struct rt_rq *rt_rq, struct task_struct *p)
+{
+}
+#endif
+
+int is_dl_group(struct rt_rq *rt_rq);
+
+void dequeue_dl_entity(struct sched_dl_entity *dl_se);
+
+void init_dl_timer(struct sched_dl_entity *dl_se);
+
+void enqueue_dl_entity(struct sched_dl_entity *dl_se,
+			      struct sched_dl_entity *pi_se, int flags);
+int dl_runtime_exceeded(struct sched_dl_entity *dl_se);
+int start_dl_timer(struct sched_dl_entity *dl_se);
+void start_hrtick_dl(struct rq *rq, struct sched_dl_entity *dl_se);

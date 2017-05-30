@@ -421,7 +421,7 @@ struct sched_rt_entity {
 
 	struct sched_rt_entity		*back;
 #ifdef CONFIG_RT_GROUP_SCHED
-	struct sched_rt_entity		*parent;
+	struct sched_dl_entity		*parent;
 	/* rq on which this entity is (to be) queued: */
 	struct rt_rq			*rt_rq;
 #endif
@@ -494,6 +494,17 @@ struct sched_dl_entity {
 	 * time.
 	 */
 	struct hrtimer inactive_timer;
+
+/*
+ * An instance of a sched_dl_entity may represent a group of tasks, therefore
+ * it requires:
+ * - dl_rq: the rq on which this entity is queued;
+ * - rt_rq: the rq owned by this entity;
+ */
+#ifdef CONFIG_RT_GROUP_SCHED
+	struct dl_rq			*dl_rq;
+	struct rt_rq			*my_q;
+#endif
 };
 
 union rcu_special {

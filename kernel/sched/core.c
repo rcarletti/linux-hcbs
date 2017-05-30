@@ -882,6 +882,9 @@ void check_preempt_curr(struct rq *rq, struct task_struct *p, int flags)
 {
 	const struct sched_class *class;
 
+	if (is_dl_group(rt_rq_of_se(&p->rt)) && task_has_rt_policy(p))
+		resched_curr(rq);
+
 	if (p->sched_class == rq->curr->sched_class) {
 		rq->curr->sched_class->check_preempt_curr(rq, p, flags);
 	} else {
@@ -4222,7 +4225,8 @@ change:
 		 * Do not allow realtime tasks into groups that have no runtime
 		 * assigned.
 		 */
-		if (rt_policy(policy) &&
+		if (dl_bandwidth_enabled() && rt_policy(policy) &&
+				task_group(p)->dl_bandwidth.dl_runtime == 0 &&
 				!task_group_is_autogroup(task_group(p))) {
 			task_rq_unlock(rq, p, &rf);
 			return -EPERM;
@@ -5918,7 +5922,7 @@ void __init sched_init(void)
 
 #endif /* CONFIG_FAIR_GROUP_SCHED */
 #ifdef CONFIG_RT_GROUP_SCHED
-		root_task_group.rt_se = (struct sched_rt_entity **)ptr;
+		root_task_group.dl_se = (struct sched_dl_entity **)ptr;
 		ptr += nr_cpu_ids * sizeof(void **);
 
 		root_task_group.rt_rq = (struct rt_rq **)ptr;
@@ -5941,6 +5945,11 @@ void __init sched_init(void)
 	init_defrootdomain();
 #endif
 
+#ifdef CONFIG_RT_GROUP_SCHED
+	init_dl_bandwidth(&root_task_group.dl_bandwidth,
+			global_rt_period(), global_rt_runtime());
+#endif /* CONFIG_RT_GROUP_SCHED */
+ 
 #ifdef CONFIG_CGROUP_SCHED
 	task_group_cache = KMEM_CACHE(task_group, 0);
 
@@ -6365,6 +6374,12 @@ cpu_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 		/* This is early initialization for the top cgroup */
 		return &root_task_group.css;
 	}
+
+	/* Do not allow cpu_cgroup hierachies with depth greater than 2. */
+#ifdef CONFIG_RT_GROUP_SCHED
+	if (parent != &root_task_group)
+		return ERR_PTR(-EINVAL);
+#endif
 
 	tg = sched_create_group(parent);
 	if (IS_ERR(tg))
