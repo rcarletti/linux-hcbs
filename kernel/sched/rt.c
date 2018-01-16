@@ -53,6 +53,7 @@ void free_rt_sched_group(struct task_group *tg)
 			raw_spin_lock_irqsave(&cpu_rq(i)->lock, flags);
 			if (!tg->dl_se[i]->dl_throttled)
 				dequeue_dl_entity(tg->dl_se[i]);
+			task_non_contending(tg->dl_se[i]);
 			raw_spin_unlock_irqrestore(&cpu_rq(i)->lock, flags);
 
 			hrtimer_cancel(&tg->dl_se[i]->dl_timer);
@@ -116,6 +117,7 @@ int alloc_rt_sched_group(struct task_group *tg, struct task_group *parent)
 		rt_rq->rq = cpu_rq(i);
 
 		init_dl_task_timer(dl_se);
+		init_dl_inactive_task_timer(dl_se);
 
 		dl_se->dl_runtime = tg->dl_bandwidth.dl_runtime;
 		dl_se->dl_period = tg->dl_bandwidth.dl_period;
@@ -604,7 +606,7 @@ enqueue_task_rt(struct rq *rq, struct task_struct *p, int flags)
 		struct sched_dl_entity *dl_se = dl_group_of(rt_rq);
 
 		if (!dl_se->dl_throttled) {
-			enqueue_dl_entity(dl_se, dl_se, flags);
+			enqueue_dl_entity(dl_se, dl_se, ENQUEUE_WAKEUP);
 			resched_curr(rq);
 		}
 	}
@@ -634,6 +636,7 @@ static void dequeue_task_rt(struct rq *rq, struct task_struct *p, int flags)
 #endif
 		if (!rt_rq->rt_nr_running) {
 			dequeue_dl_entity(dl_se);
+			task_non_contending(dl_se);
 			resched_curr(rq);
 		}
 	}
@@ -2051,22 +2054,8 @@ static int tg_set_rt_bandwidth(struct task_group *tg,
 		goto unlock_bandwidth;
 
 	for_each_possible_cpu(i) {
-		struct sched_dl_entity *dl_se = tg->dl_se[i];
-		struct rq *rq = container_of(dl_se->dl_rq, struct rq, dl);
-
-		raw_spin_lock_irq(&rq->lock);
-		dl_se->dl_runtime  = rt_runtime;
-		dl_se->dl_period   = rt_period;
-		dl_se->dl_deadline = dl_se->dl_period;
-		dl_se->dl_bw = to_ratio(dl_se->dl_period, dl_se->dl_runtime);
-
-		if (!((s64)(rt_period - rt_runtime) >= 0) ||
-		    !(rt_runtime >= (2 << (DL_SCALE - 1)))) {
-			raw_spin_unlock_irq(&rq->lock);
-			continue;
-		}
-
-		raw_spin_unlock_irq(&rq->lock);
+printk_deferred("Initing TG[%d]: %llu %llu\n", i, rt_runtime, rt_period);
+		if (dl_init_tg(tg->dl_se[i], rt_runtime, rt_period) == 0) continue;
 	}
 unlock_bandwidth:
 	raw_spin_unlock_irq(&tg->dl_bandwidth.dl_runtime_lock);

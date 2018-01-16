@@ -261,6 +261,7 @@ void __dl_add(struct dl_bw *dl_b, u64 tsk_bw, int cpus)
 
 
 int dl_check_tg(unsigned long total);
+int dl_init_tg(struct sched_dl_entity *dl_se, u64 rt_runtime, u64 rt_period);
 void dl_change_utilization(struct task_struct *p, u64 new_bw);
 extern void init_dl_bw(struct dl_bw *dl_b);
 extern int sched_dl_global_validate(void);
@@ -2220,6 +2221,7 @@ void dequeue_pushable_task(struct rt_rq *rt_rq, struct task_struct *p)
 int is_dl_group(struct rt_rq *rt_rq);
 
 void dequeue_dl_entity(struct sched_dl_entity *dl_se);
+void task_non_contending(struct sched_dl_entity *dl_se);
 
 void init_dl_timer(struct sched_dl_entity *dl_se);
 
