@@ -47,18 +47,17 @@ void free_rt_sched_group(struct task_group *tg)
 	int i;
 
 	for_each_possible_cpu(i) {
-		if (tg->rt_rq)
-			kfree(tg->rt_rq[i]);
 		if (tg->dl_se) {
+			dl_init_tg(tg->dl_se[i], 0, tg->dl_se[i]->dl_period);
 			raw_spin_lock_irqsave(&cpu_rq(i)->lock, flags);
-			if (!tg->dl_se[i]->dl_throttled)
-				dequeue_dl_entity(tg->dl_se[i]);
-			task_non_contending(tg->dl_se[i]);
+			BUG_ON(tg->rt_rq[i]->rt_nr_running);
 			raw_spin_unlock_irqrestore(&cpu_rq(i)->lock, flags);
 
 			hrtimer_cancel(&tg->dl_se[i]->dl_timer);
 			kfree(tg->dl_se[i]);
 		}
+		if (tg->rt_rq)
+			kfree(tg->rt_rq[i]);
 	}
 
 	kfree(tg->rt_rq);
@@ -631,13 +630,14 @@ static void dequeue_task_rt(struct rq *rq, struct task_struct *p, int flags)
 	if (is_dl_group(rt_rq) && !rt_rq->rt_nr_running) {
 		struct sched_dl_entity *dl_se = dl_group_of(rt_rq);
 
-#ifndef CONFIG_RT_GROUP_SCHED
-		queue_pull_task(rq);
-#endif
-		if (!rt_rq->rt_nr_running) {
-			dequeue_dl_entity(dl_se);
-			task_non_contending(dl_se);
-			resched_curr(rq);
+		if (!dl_se->dl_throttled) {
+			queue_pull_task(rq);
+
+			if (!rt_rq->rt_nr_running) {
+				dequeue_dl_entity(dl_se);
+				task_non_contending(dl_se);
+				resched_curr(rq);
+			}
 		}
 	}
 }

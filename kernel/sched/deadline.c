@@ -1111,6 +1111,7 @@ static enum hrtimer_restart dl_task_timer(struct hrtimer *timer)
 #endif
 		} else {
 			replenish_dl_entity(dl_se, dl_se);
+			task_non_contending(dl_se);
 		}
 
 		raw_spin_unlock(&rq->lock);
