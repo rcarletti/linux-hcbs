@@ -2017,6 +2017,13 @@ static int __rt_schedulable(struct task_group *tg, u64 period, u64 runtime)
 		.rt_runtime = runtime,
 	};
 
+	if (!((s64)(period - runtime) >= 0) ||
+	    (runtime && !(runtime >= (2 << (DL_SCALE - 1))))) {
+
+		return 1;
+	}
+
+
 	rcu_read_lock();
 	ret = walk_tg_tree(tg_rt_schedulable, tg_nop, &data);
 	rcu_read_unlock();
@@ -2054,8 +2061,7 @@ static int tg_set_rt_bandwidth(struct task_group *tg,
 		goto unlock_bandwidth;
 
 	for_each_possible_cpu(i) {
-printk_deferred("Initing TG[%d]: %llu %llu\n", i, rt_runtime, rt_period);
-		if (dl_init_tg(tg->dl_se[i], rt_runtime, rt_period) == 0) continue;
+		dl_init_tg(tg->dl_se[i], rt_runtime, rt_period);
 	}
 unlock_bandwidth:
 	raw_spin_unlock_irq(&tg->dl_bandwidth.dl_runtime_lock);

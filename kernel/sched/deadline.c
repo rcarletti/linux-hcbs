@@ -196,22 +196,26 @@ int dl_check_tg(unsigned long total)
 int dl_init_tg(struct sched_dl_entity *dl_se, u64 rt_runtime, u64 rt_period)
 {
 	struct rq *rq = container_of(dl_rq_of_se(dl_se), struct rq, dl);
+	int is_active;
+
+	is_active = !dl_se->dl_throttled && (rt_rq_of_dl_entity(dl_se)->rt_nr_running > 0);
 
 	raw_spin_lock_irq(&rq->lock);
 	dl_se->dl_runtime  = rt_runtime;
 	dl_se->dl_period   = rt_period;
 	dl_se->dl_deadline = dl_se->dl_period;
+	if (is_active) {
+		sub_running_bw(dl_se, dl_rq_of_se(dl_se));
+	} else if (dl_se->dl_non_contending) {
+		sub_running_bw(dl_se, dl_rq_of_se(dl_se));
+		dl_se->dl_non_contending = 0;
+		hrtimer_try_to_cancel(&dl_se->inactive_timer);
+	}
 	sub_rq_bw(dl_se, dl_rq_of_se(dl_se));
 	dl_se->dl_bw = to_ratio(dl_se->dl_period, dl_se->dl_runtime);
 	add_rq_bw(dl_se, dl_rq_of_se(dl_se));
-
-	/* ??? FIX THIS CRAP! ??? */
-	if (!((s64)(rt_period - rt_runtime) >= 0) ||
-	    !(rt_runtime >= (2 << (DL_SCALE - 1)))) {
-		raw_spin_unlock_irq(&rq->lock);
-
-		return 0;
-	}
+	if (is_active)
+		add_running_bw(dl_se, dl_rq_of_se(dl_se));
 
 	raw_spin_unlock_irq(&rq->lock);
 
