@@ -4221,6 +4221,10 @@ change:
 
 	if (user) {
 #ifdef CONFIG_RT_GROUP_SCHED
+		if (dl_bandwidth_enabled() && rt_policy(policy) && !sched_rt_can_attach(task_group(p), p)) {
+			task_rq_unlock(rq, p, &rf);
+			return -EPERM;
+		}
 		/*
 		 * Do not allow realtime tasks into groups that have no runtime
 		 * assigned.
@@ -6374,12 +6378,6 @@ cpu_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 		/* This is early initialization for the top cgroup */
 		return &root_task_group.css;
 	}
-
-	/* Do not allow cpu_cgroup hierachies with depth greater than 2. */
-#ifdef CONFIG_RT_GROUP_SCHED
-	if (parent != &root_task_group)
-		return ERR_PTR(-EINVAL);
-#endif
 
 	tg = sched_create_group(parent);
 	if (IS_ERR(tg))
