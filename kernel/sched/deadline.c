@@ -193,6 +193,7 @@ int dl_check_tg(unsigned long total)
 	return 1;
 }
 
+#ifdef CONFIG_RT_GROUP_SCHED
 int dl_init_tg(struct sched_dl_entity *dl_se, u64 rt_runtime, u64 rt_period)
 {
 	struct rq *rq = container_of(dl_rq_of_se(dl_se), struct rq, dl);
@@ -221,6 +222,7 @@ int dl_init_tg(struct sched_dl_entity *dl_se, u64 rt_runtime, u64 rt_period)
 
 	return 1;
 }
+#endif
 
 void dl_change_utilization(struct task_struct *p, u64 new_bw)
 {
