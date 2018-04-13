@@ -2031,6 +2031,53 @@ static int __rt_schedulable(struct task_group *tg, u64 period, u64 runtime)
 	return ret;
 }
 
+static int tg_set_rt_multi_bandwidth(struct task_group * tg, u64 rt_period, u64 rt_runtime, int cpu_id)
+{
+	int err = 0;
+
+	/*
+	 * Disallowing the root group RT runtime is BAD, it would disallow the
+	 * kernel creating (and or operating) RT threads.
+	 */
+	if (tg == &root_task_group && rt_runtime == 0)
+		return -EINVAL;
+
+	/*
+	 * Do not allow to set a RT runtime > 0 if the parent has RT tasks
+	 * (and is not the root group)
+	 */
+	if (rt_runtime && (tg != &root_task_group) && (tg->parent != &root_task_group) && tg_has_rt_tasks(tg->parent)) {
+		return -EINVAL;
+	}
+
+	/* No period doesn't make any sense. */
+	if (rt_period == 0)
+		return -EINVAL;
+
+	mutex_lock(&rt_constraints_mutex);
+	read_lock(&tasklist_lock);
+	err = __rt_schedulable(tg, rt_period, rt_runtime);
+	if (err)
+		goto unlock;
+
+	raw_spin_lock_irq(&tg->dl_bandwidth.dl_runtime_lock);
+	tg->dl_bandwidth.dl_period  = rt_period;
+	tg->dl_bandwidth.dl_runtime = rt_runtime;
+
+	if (tg == &root_task_group)
+		goto unlock_bandwidth;
+		
+	dl_init_tg(tg->dl_se[cpu_id], rt_runtime, rt_period);
+	
+unlock_bandwidth:
+	raw_spin_unlock_irq(&tg->dl_bandwidth.dl_runtime_lock);
+unlock:
+	read_unlock(&tasklist_lock);
+	mutex_unlock(&rt_constraints_mutex);
+
+	return err;
+}
+
 static int tg_set_rt_bandwidth(struct task_group *tg,
 		u64 rt_period, u64 rt_runtime)
 {
@@ -2090,6 +2137,18 @@ int sched_group_set_rt_runtime(struct task_group *tg, long rt_runtime_us)
 		rt_runtime = RUNTIME_INF;
 
 	return tg_set_rt_bandwidth(tg, rt_period, rt_runtime);
+}
+
+int sched_group_set_rt_multi_runtime(struct task_group *tg,unsigned long rt_runtime_us, int cpu_id)
+{
+	u64 rt_runtime, rt_period;
+	
+	rt_period = tg->dl_bandwidth.dl_period;
+	rt_runtime = (u64)rt_runtime_us * NSEC_PER_USEC;
+	if (rt_runtime_us < 0)
+		rt_runtime = RUNTIME_INF;
+		
+	return tg_set_rt_multi_bandwidth(tg,rt_period, rt_runtime, cpu_id);
 }
 
 long sched_group_rt_runtime(struct task_group *tg)

@@ -6759,7 +6759,11 @@ static ssize_t cpu_rt_multi_runtime_write(struct kernfs_open_file *of,
 	char * substr;
 	int cpu_id;
 	
+	css = of_css(of);
+	
 	printk(KERN_INFO "STRINGA INTERA: %s\n",buf);
+	
+	/* get cpu numbers*/
 	
 	substr = strsep(&buf," ");
 	if (!substr)
@@ -6771,15 +6775,14 @@ static ssize_t cpu_rt_multi_runtime_write(struct kernfs_open_file *of,
 		printk(KERN_INFO "PRIMA STRINGA: %s\n", substr);
 	}
 	
+	/* parse cpu numbers into a cmask */
+	
 	if (cpulist_parse(substr, &cmask))
 	{
 		printk(KERN_INFO "errore parsing\n");
 	}
 	
-	for_each_cpu(cpu_id,&cmask)
-	{
-		printk(KERN_INFO "CPU ID: %d\n",cpu_id);
-	}
+	/* get runtime */
 	
 	substr = strsep(&buf," ");
 	printk(KERN_INFO "STRINGA: %s\n",substr);
@@ -6790,10 +6793,14 @@ static ssize_t cpu_rt_multi_runtime_write(struct kernfs_open_file *of,
 		printk(KERN_INFO "RUNTIME : %ld\n",val);
 	}
 	
-	css = of_css(of);
-
 	
-	//sched_group_set_rt_runtime(css_tg(css), (unsigned long)val);
+	/* set bandwidth for each cpu */
+	
+	for_each_cpu(cpu_id,&cmask)
+	{
+		printk(KERN_INFO "CPU ID: %d\n",cpu_id);
+		sched_group_set_rt_multi_runtime(css_tg(css), val, cpu_id);
+	}
 	
 	return nbytes;
 }
