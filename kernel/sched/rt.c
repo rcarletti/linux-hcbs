@@ -2109,6 +2109,14 @@ static int tg_set_rt_bandwidth(struct task_group *tg,
 		goto unlock;
 
 	raw_spin_lock_irq(&tg->dl_bandwidth.dl_runtime_lock);
+	//update_dl_bandwidth(tg, cid, rt_runtime);
+	/*{
+	per tutte le cpu != cid
+	total_runtime +=tg->dl_se[i]->rt_runtime
+	total_runtime+= rt_runtime
+	tg->dl_bandwosth.dl_runtime = total_runtime/n.cpu
+	}
+	*/
 	tg->dl_bandwidth.dl_period  = rt_period;
 	tg->dl_bandwidth.dl_runtime = rt_runtime;
 
@@ -2139,16 +2147,17 @@ int sched_group_set_rt_runtime(struct task_group *tg, long rt_runtime_us)
 	return tg_set_rt_bandwidth(tg, rt_period, rt_runtime);
 }
 
-int sched_group_set_rt_multi_runtime(struct task_group *tg,unsigned long rt_runtime_us, int cpu_id)
+int sched_group_set_rt_multi_runtime(struct task_group *tg,
+				     unsigned long rt_runtime_us, int cid)
 {
 	u64 rt_runtime, rt_period;
-	
+
 	rt_period = tg->dl_bandwidth.dl_period;
 	rt_runtime = (u64)rt_runtime_us * NSEC_PER_USEC;
 	if (rt_runtime_us < 0)
 		rt_runtime = RUNTIME_INF;
-		
-	return tg_set_rt_multi_bandwidth(tg,rt_period, rt_runtime, cpu_id);
+
+	return tg_set_rt_multi_bandwidth(tg,rt_period, rt_runtime, cid);
 }
 
 long sched_group_rt_runtime(struct task_group *tg)

@@ -6751,57 +6751,34 @@ static s64 cpu_rt_runtime_read(struct cgroup_subsys_state *css,
 }
 
 static ssize_t cpu_rt_multi_runtime_write(struct kernfs_open_file *of,
-			 	char *buf, size_t nbytes, loff_t off)
+					  char *buf, size_t nbytes, loff_t off)
 {
-	unsigned long val;
-	struct cgroup_subsys_state *css;
-	struct cpumask cmask;
-	char * substr;
-	int cpu_id;
-	
-	css = of_css(of);
-	
-	printk(KERN_INFO "STRINGA INTERA: %s\n",buf);
-	
-	/* get cpu numbers*/
-	
-	substr = strsep(&buf," ");
-	if (!substr)
-	{
-		printk(KERN_INFO "ERRORE PRINTK\n");
-	}
-	else 
-	{
-		printk(KERN_INFO "PRIMA STRINGA: %s\n", substr);
-	}
-	
-	/* parse cpu numbers into a cmask */
-	
-	if (cpulist_parse(substr, &cmask))
-	{
-		printk(KERN_INFO "errore parsing\n");
-	}
-	
-	/* get runtime */
-	
-	substr = strsep(&buf," ");
-	printk(KERN_INFO "STRINGA: %s\n",substr);
-	
+	struct cgroup_subsys_state *css = of_css(of);
+	cpumask_t mask;
+	char *cpu_s, *val_s;
+	long val;
+	int ret, cid;
 
-	if (kstrtoul(substr, 0, &val) == 0)
-	{
-		printk(KERN_INFO "RUNTIME : %ld\n",val);
+	cpu_s = strsep(&buf, " ");
+	val_s = strsep(&buf, " ");
+
+	if (!cpu_s || !val_s)
+		return -EINVAL;
+
+	ret = cpulist_parse(cpu_s, &mask);
+	if (ret)
+		return ret;
+
+	ret = kstrtol(val_s, 0, &val);
+	if (ret)
+		return ret;
+
+	for_each_cpu(cid, &mask) {
+		ret = sched_group_set_rt_multi_runtime(css_tg(css), val, cid);
+		if (ret)
+			return ret;
 	}
-	
-	
-	/* set bandwidth for each cpu */
-	
-	for_each_cpu(cpu_id,&cmask)
-	{
-		printk(KERN_INFO "CPU ID: %d\n",cpu_id);
-		sched_group_set_rt_multi_runtime(css_tg(css), val, cpu_id);
-	}
-	
+
 	return nbytes;
 }
 
