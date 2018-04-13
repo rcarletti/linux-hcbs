@@ -17,6 +17,7 @@
 #include <linux/context_tracking.h>
 #include <linux/rcupdate_wait.h>
 #include <linux/compat.h>
+#include <linux/kernel.h>
 
 #include <linux/blkdev.h>
 #include <linux/kprobes.h>
@@ -6749,6 +6750,20 @@ static s64 cpu_rt_runtime_read(struct cgroup_subsys_state *css,
 	return sched_group_rt_runtime(css_tg(css));
 }
 
+static ssize_t cpu_rt_multi_runtime_write(struct kernfs_open_file *of,
+			 	char *buf, size_t nbytes, loff_t off)
+{
+	unsigned long val;
+	//struct cgroup_subsys_state *css;
+	//css = of_css(of);	
+	if (kstrtoul(buf, 0, &val) == 0)
+	{
+		printk(KERN_DEBUG "RUNTIME : %ld\n",val);
+	}
+	
+	return nbytes;
+}
+
 static int cpu_rt_period_write_uint(struct cgroup_subsys_state *css,
 				    struct cftype *cftype, u64 rt_period_us)
 {
@@ -6791,6 +6806,10 @@ static struct cftype cpu_legacy_files[] = {
 		.name = "rt_runtime_us",
 		.read_s64 = cpu_rt_runtime_read,
 		.write_s64 = cpu_rt_runtime_write,
+	},
+	{
+		.name = "rt_multi_runtime_us",
+		.write = cpu_rt_multi_runtime_write,
 	},
 	{
 		.name = "rt_period_us",
