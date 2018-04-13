@@ -6754,12 +6754,46 @@ static ssize_t cpu_rt_multi_runtime_write(struct kernfs_open_file *of,
 			 	char *buf, size_t nbytes, loff_t off)
 {
 	unsigned long val;
-	//struct cgroup_subsys_state *css;
-	//css = of_css(of);	
-	if (kstrtoul(buf, 0, &val) == 0)
+	struct cgroup_subsys_state *css;
+	struct cpumask cmask;
+	char * substr;
+	int cpu_id;
+	
+	printk(KERN_INFO "STRINGA INTERA: %s\n",buf);
+	
+	substr = strsep(&buf," ");
+	if (!substr)
 	{
-		printk(KERN_DEBUG "RUNTIME : %ld\n",val);
+		printk(KERN_INFO "ERRORE PRINTK\n");
 	}
+	else 
+	{
+		printk(KERN_INFO "PRIMA STRINGA: %s\n", substr);
+	}
+	
+	if (cpulist_parse(substr, &cmask))
+	{
+		printk(KERN_INFO "errore parsing\n");
+	}
+	
+	for_each_cpu(cpu_id,&cmask)
+	{
+		printk(KERN_INFO "CPU ID: %d\n",cpu_id);
+	}
+	
+	substr = strsep(&buf," ");
+	printk(KERN_INFO "STRINGA: %s\n",substr);
+	
+
+	if (kstrtoul(substr, 0, &val) == 0)
+	{
+		printk(KERN_INFO "RUNTIME : %ld\n",val);
+	}
+	
+	css = of_css(of);
+
+	
+	//sched_group_set_rt_runtime(css_tg(css), (unsigned long)val);
 	
 	return nbytes;
 }
