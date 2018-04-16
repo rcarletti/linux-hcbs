@@ -1586,6 +1586,9 @@ int group_pull_rt_task_from_group(struct rt_rq *this_rt_rq)
 		src_dl_se = this_rt_rq->tg->dl_se[cpu];
 		src_rt_rq = src_dl_se->my_q;
 
+		if (!src_dl_se->dl_runtime)
+			continue;
+
 		if ((src_rt_rq->rt_nr_running <= 1) && !src_dl_se->dl_throttled)
 			continue;
 
@@ -2031,7 +2034,21 @@ static int __rt_schedulable(struct task_group *tg, u64 period, u64 runtime)
 	return ret;
 }
 
-static int tg_set_rt_multi_bandwidth(struct task_group * tg, u64 rt_period, u64 rt_runtime, int cpu_id)
+static void update_dl_bandwidth(struct task_group * tg, int cid, u64 rt_runtime)
+{
+	int i, total_runtime = 0;
+
+	for_each_possible_cpu(i) {
+		if (i == cid)
+			continue;
+		total_runtime += tg->dl_se[i]->dl_runtime;
+	}
+
+	total_runtime += rt_runtime;
+	tg->dl_bandwidth.dl_runtime = total_runtime / num_possible_cpus();
+}
+
+static int tg_set_rt_multi_bandwidth(struct task_group * tg, u64 rt_period, u64 rt_runtime, int cid)
 {
 	int err = 0;
 
@@ -2062,12 +2079,12 @@ static int tg_set_rt_multi_bandwidth(struct task_group * tg, u64 rt_period, u64 
 
 	raw_spin_lock_irq(&tg->dl_bandwidth.dl_runtime_lock);
 	tg->dl_bandwidth.dl_period  = rt_period;
-	tg->dl_bandwidth.dl_runtime = rt_runtime;
+	update_dl_bandwidth(tg, cid, rt_runtime);
 
 	if (tg == &root_task_group)
 		goto unlock_bandwidth;
 		
-	dl_init_tg(tg->dl_se[cpu_id], rt_runtime, rt_period);
+	dl_init_tg(tg->dl_se[cid], rt_runtime, rt_period);
 	
 unlock_bandwidth:
 	raw_spin_unlock_irq(&tg->dl_bandwidth.dl_runtime_lock);
@@ -2109,14 +2126,6 @@ static int tg_set_rt_bandwidth(struct task_group *tg,
 		goto unlock;
 
 	raw_spin_lock_irq(&tg->dl_bandwidth.dl_runtime_lock);
-	//update_dl_bandwidth(tg, cid, rt_runtime);
-	/*{
-	per tutte le cpu != cid
-	total_runtime +=tg->dl_se[i]->rt_runtime
-	total_runtime+= rt_runtime
-	tg->dl_bandwosth.dl_runtime = total_runtime/n.cpu
-	}
-	*/
 	tg->dl_bandwidth.dl_period  = rt_period;
 	tg->dl_bandwidth.dl_runtime = rt_runtime;
 
@@ -2170,6 +2179,22 @@ long sched_group_rt_runtime(struct task_group *tg)
 	rt_runtime_us = tg->dl_bandwidth.dl_runtime;
 	do_div(rt_runtime_us, NSEC_PER_USEC);
 	return rt_runtime_us;
+}
+
+int sched_group_rt_multi_runtime(struct task_group *tg, long *rt_runtimes,
+				 size_t size)
+{
+	int i;
+
+	for_each_possible_cpu(i) {
+		if(size <= i)
+			return -ENOSPC;
+
+		rt_runtimes[i] = tg->dl_se[i]->dl_runtime;
+		do_div(rt_runtimes[i], NSEC_PER_USEC);
+	}
+
+	return 0;
 }
 
 int sched_group_set_rt_period(struct task_group *tg, u64 rt_period_us)

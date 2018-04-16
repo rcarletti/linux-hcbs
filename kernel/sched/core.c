@@ -6750,6 +6750,29 @@ static s64 cpu_rt_runtime_read(struct cgroup_subsys_state *css,
 	return sched_group_rt_runtime(css_tg(css));
 }
 
+static int cpu_rt_multi_runtime_read(struct seq_file *sf, void *v)
+{
+	struct cgroup_subsys_state *css = seq_css(sf);
+	int n_cpu = num_possible_cpus();
+	long *rt_runtimes;
+	int ret, i;
+
+	rt_runtimes = kzalloc(n_cpu * sizeof(*rt_runtimes), GFP_KERNEL);
+	if (!rt_runtimes)
+		return -ENOMEM;
+
+	ret = sched_group_rt_multi_runtime(css_tg(css), rt_runtimes, n_cpu);
+	if (ret)
+		return ret;
+
+	for (i = 0; i < n_cpu; i++)
+		seq_printf(sf, "%ld ", rt_runtimes[i]);
+
+	seq_printf(sf, "\n");
+
+	return 0;
+}
+
 static ssize_t cpu_rt_multi_runtime_write(struct kernfs_open_file *of,
 					  char *buf, size_t nbytes, loff_t off)
 {
@@ -6827,6 +6850,7 @@ static struct cftype cpu_legacy_files[] = {
 	},
 	{
 		.name = "rt_multi_runtime_us",
+		.seq_show = cpu_rt_multi_runtime_read,
 		.write = cpu_rt_multi_runtime_write,
 	},
 	{
