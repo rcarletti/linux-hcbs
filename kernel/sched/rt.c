@@ -2071,6 +2071,11 @@ static int tg_set_rt_multi_bandwidth(struct task_group * tg, u64 rt_period, u64 
 	if (rt_period == 0)
 		return -EINVAL;
 
+	if (rt_runtime == 0) {
+		printk(KERN_INFO "*******************\n");
+		return -EINVAL;
+	}
+
 	mutex_lock(&rt_constraints_mutex);
 	read_lock(&tasklist_lock);
 	err = __rt_schedulable(tg, rt_period, rt_runtime);
@@ -2232,6 +2237,13 @@ static int sched_rt_global_constraints(void)
 int sched_rt_can_attach(struct task_group *tg, struct task_struct *tsk)
 {
 	int can_attach = 1;
+	int i = 0;
+
+	for_each_possible_cpu(i) {
+		if(rt_task(tsk) && tg->dl_se[i]->dl_runtime == 0) {
+			return 0;
+		}
+	}
 
 	/* Don't accept realtime tasks when there is no way for them to run */
 	if (rt_task(tsk) && tg->dl_bandwidth.dl_runtime == 0)
