@@ -2072,7 +2072,6 @@ static int tg_set_rt_multi_bandwidth(struct task_group * tg, u64 rt_period, u64 
 		return -EINVAL;
 
 	if (rt_runtime == 0) {
-		printk(KERN_INFO "*******************\n");
 		return -EINVAL;
 	}
 
@@ -2239,18 +2238,18 @@ int sched_rt_can_attach(struct task_group *tg, struct task_struct *tsk)
 	int can_attach = 1;
 	int i = 0;
 
+	if(!rt_task(tsk))
+		return 1;
+
+	/* Don't accept realtime tasks when there is no way for them to run */
 	for_each_possible_cpu(i) {
-		if(rt_task(tsk) && tg->dl_se[i]->dl_runtime == 0) {
+		if(tg->dl_se[i]->dl_runtime == 0) {
 			return 0;
 		}
 	}
 
-	/* Don't accept realtime tasks when there is no way for them to run */
-	if (rt_task(tsk) && tg->dl_bandwidth.dl_runtime == 0)
-		return 0;
-
 	/* If one of the children has runtime > 0, cannot attach RT tasks! */
-	if ((tg != &root_task_group) && rt_task(tsk)) {
+	if (tg != &root_task_group) {
 		struct task_group *child;
 
 		list_for_each_entry_rcu(child, &tg->children, siblings) {
