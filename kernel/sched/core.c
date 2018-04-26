@@ -4222,6 +4222,7 @@ change:
 
 	if (user) {
 #ifdef CONFIG_RT_GROUP_SCHED
+		int i;
 		if (dl_bandwidth_enabled() && rt_policy(policy) && !sched_rt_can_attach(task_group(p), p)) {
 			task_rq_unlock(rq, p, &rf);
 			return -EPERM;

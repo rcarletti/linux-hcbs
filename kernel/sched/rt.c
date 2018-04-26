@@ -1955,13 +1955,16 @@ static int tg_rt_schedulable(struct task_group *tg, void *data)
 	struct task_group *child;
 	unsigned long total, sum = 0;
 	u64 period, runtime;
+	int n_cpu = num_possible_cpus();
 
 	period  = tg->dl_bandwidth.dl_period;
 	runtime = tg->dl_bandwidth.dl_runtime;
+	total = to_ratio(period, runtime);
 
 	if (tg == d->tg) {
 		period = d->rt_period;
 		runtime = d->rt_runtime;
+		total = to_ratio(period, runtime / n_cpu);
 	}
 
 	/*
@@ -1976,12 +1979,11 @@ static int tg_rt_schedulable(struct task_group *tg, void *data)
 	if (dl_bandwidth_enabled() && !runtime && tg_has_rt_tasks(tg))
 		return -EBUSY;
 
-	total = to_ratio(period, runtime);
-
 	/*
 	 * Nobody can have more than the global setting allows.
 	 */
-	if (total > to_ratio(global_rt_period(), global_rt_runtime()))
+	if (total * ((tg == d->tg) ? n_cpu : 1) >
+	    to_ratio(global_rt_period(), global_rt_runtime()))
 		return -EINVAL;
 
 	if (tg == &root_task_group) {
@@ -2048,7 +2050,7 @@ static void update_dl_bandwidth(struct task_group * tg, int cid, u64 rt_runtime)
 	tg->dl_bandwidth.dl_runtime = total_runtime / num_possible_cpus();
 }
 
-static int tg_set_rt_multi_bandwidth(struct task_group * tg, u64 rt_period, u64 rt_runtime, int cid)
+static int tg_set_rt_bandwidth(struct task_group * tg, u64 rt_period, u64 rt_runtime, int cid)
 {
 	int err = 0;
 
@@ -2070,10 +2072,6 @@ static int tg_set_rt_multi_bandwidth(struct task_group * tg, u64 rt_period, u64 
 	/* No period doesn't make any sense. */
 	if (rt_period == 0)
 		return -EINVAL;
-
-	if (rt_runtime == 0) {
-		return -EINVAL;
-	}
 
 	mutex_lock(&rt_constraints_mutex);
 	read_lock(&tasklist_lock);
@@ -2099,65 +2097,23 @@ unlock:
 	return err;
 }
 
-static int tg_set_rt_bandwidth(struct task_group *tg,
-		u64 rt_period, u64 rt_runtime)
-{
-	int i, err = 0;
-
-	/*
-	 * Disallowing the root group RT runtime is BAD, it would disallow the
-	 * kernel creating (and or operating) RT threads.
-	 */
-	if (tg == &root_task_group && rt_runtime == 0)
-		return -EINVAL;
-
-	/*
-	 * Do not allow to set a RT runtime > 0 if the parent has RT tasks
-	 * (and is not the root group)
-	 */
-	if (rt_runtime && (tg != &root_task_group) && (tg->parent != &root_task_group) && tg_has_rt_tasks(tg->parent)) {
-		return -EINVAL;
-	}
-
-	/* No period doesn't make any sense. */
-	if (rt_period == 0)
-		return -EINVAL;
-
-	mutex_lock(&rt_constraints_mutex);
-	read_lock(&tasklist_lock);
-	err = __rt_schedulable(tg, rt_period, rt_runtime);
-	if (err)
-		goto unlock;
-
-	raw_spin_lock_irq(&tg->dl_bandwidth.dl_runtime_lock);
-	tg->dl_bandwidth.dl_period  = rt_period;
-	tg->dl_bandwidth.dl_runtime = rt_runtime;
-
-	if (tg == &root_task_group)
-		goto unlock_bandwidth;
-
-	for_each_possible_cpu(i) {
-		dl_init_tg(tg->dl_se[i], rt_runtime, rt_period);
-	}
-unlock_bandwidth:
-	raw_spin_unlock_irq(&tg->dl_bandwidth.dl_runtime_lock);
-unlock:
-	read_unlock(&tasklist_lock);
-	mutex_unlock(&rt_constraints_mutex);
-
-	return err;
-}
-
 int sched_group_set_rt_runtime(struct task_group *tg, long rt_runtime_us)
 {
 	u64 rt_runtime, rt_period;
+	int i,err;
 
 	rt_period  = tg->dl_bandwidth.dl_period;
 	rt_runtime = (u64)rt_runtime_us * NSEC_PER_USEC;
 	if (rt_runtime_us < 0)
 		rt_runtime = RUNTIME_INF;
 
-	return tg_set_rt_bandwidth(tg, rt_period, rt_runtime);
+	for_each_possible_cpu(i) {
+		err =  tg_set_rt_bandwidth(tg, rt_period, rt_runtime, i);
+		if (err)
+			return err;
+	}
+
+	return 0;
 }
 
 int sched_group_set_rt_multi_runtime(struct task_group *tg,
@@ -2167,10 +2123,13 @@ int sched_group_set_rt_multi_runtime(struct task_group *tg,
 
 	rt_period = tg->dl_bandwidth.dl_period;
 	rt_runtime = (u64)rt_runtime_us * NSEC_PER_USEC;
-	if (rt_runtime_us < 0)
+	if (rt_runtime_us < 0 )
 		rt_runtime = RUNTIME_INF;
 
-	return tg_set_rt_multi_bandwidth(tg,rt_period, rt_runtime, cid);
+	if (tg_has_rt_tasks(tg) && rt_runtime_us == 0)
+		return -EINVAL;
+
+	return tg_set_rt_bandwidth(tg,rt_period, rt_runtime, cid);
 }
 
 long sched_group_rt_runtime(struct task_group *tg)
@@ -2204,11 +2163,17 @@ int sched_group_rt_multi_runtime(struct task_group *tg, long *rt_runtimes,
 int sched_group_set_rt_period(struct task_group *tg, u64 rt_period_us)
 {
 	u64 rt_runtime, rt_period;
+	int i,err;
 
 	rt_period = rt_period_us * NSEC_PER_USEC;
 	rt_runtime = tg->dl_bandwidth.dl_runtime;
 
-	return tg_set_rt_bandwidth(tg, rt_period, rt_runtime);
+	for_each_possible_cpu(i){
+		err = tg_set_rt_bandwidth(tg, rt_period, rt_runtime, i);
+		if (err)
+			return err;
+	}
+	return 0;
 }
 
 long sched_group_rt_period(struct task_group *tg)
