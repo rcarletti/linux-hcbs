@@ -17,7 +17,6 @@
 #include <linux/context_tracking.h>
 #include <linux/rcupdate_wait.h>
 #include <linux/compat.h>
-#include <linux/kernel.h>
 
 #include <linux/blkdev.h>
 #include <linux/kprobes.h>
@@ -831,7 +830,7 @@ static inline int normal_prio(struct task_struct *p)
 /*
  * Calculate the current priority, i.e. the priority
  * taken into account by the scheduler. This value might
- * be boosted by RT tasks, or might be boosted by
+ * be boosted by Rhas_T tasks, or might be boosted by
  * interactivity modifiers. Will be RT if the task got
  * RT-boosted. If not then it returns p->normal_prio.
  */
@@ -4230,11 +4229,14 @@ change:
 		 * Do not allow realtime tasks into groups that have no runtime
 		 * assigned.
 		 */
-		if (dl_bandwidth_enabled() && rt_policy(policy) &&
-				task_group(p)->dl_bandwidth.dl_runtime == 0 &&
-				!task_group_is_autogroup(task_group(p))) {
-			task_rq_unlock(rq, p, &rf);
-			return -EPERM;
+		if (dl_bandwidth_enabled() && rt_policy(policy) && !task_group_is_autogroup(task_group(p))) {
+			struct task_group *tg = task_group(p);
+
+			if ((tg == &root_task_group && tg->dl_bandwidth.dl_runtime == 0)
+			   || (tg != &root_task_group && !tg_rt_has_valid_runtime(tg))) {
+				task_rq_unlock(rq, p, &rf);
+				return -EPERM;
+			}
 		}
 #endif
 #ifdef CONFIG_SMP
@@ -6777,12 +6779,11 @@ static ssize_t cpu_rt_multi_runtime_write(struct kernfs_open_file *of,
 					  char *buf, size_t nbytes, loff_t off)
 {
 	struct cgroup_subsys_state *css = of_css(of);
+	long *old_rt_runtimes;
 	cpumask_t mask;
 	char *cpu_s, *val_s;
+	int ret, cid, n_cpu = num_possible_cpus();
 	long val;
-	int ret, cid, ret2;
-	long *old_rt_runtimes;
-	int n_cpu = num_possible_cpus();
 
 	old_rt_runtimes = kzalloc(n_cpu * sizeof(*old_rt_runtimes), GFP_KERNEL);
 	if (!old_rt_runtimes)
@@ -6808,26 +6809,18 @@ static ssize_t cpu_rt_multi_runtime_write(struct kernfs_open_file *of,
 
 	for_each_cpu(cid, &mask) {
 		ret = sched_group_set_rt_multi_runtime(css_tg(css), val, cid);
-		if (ret) {
-
-			printk(KERN_DEBUG "fail scrittura, go to exit\n");
+		if (ret)
 			goto exit;
-		}
 	}
 
 	return nbytes;
 
 exit:
-	while(cid >= 0) {
+	while(--cid >= 0) {
 		if (cpumask_test_cpu(cid, &mask)) {
-			ret2 = sched_group_set_rt_multi_runtime(css_tg(css),
+			sched_group_set_rt_multi_runtime(css_tg(css),
 				old_rt_runtimes[cid], cid);
-
-			printk(KERN_DEBUG "scrivo %ld in %d, ret: %d\n", old_rt_runtimes[cid],cid,ret2);
 		}
-		cid--;
-
-
 	}
 
 	return ret;
