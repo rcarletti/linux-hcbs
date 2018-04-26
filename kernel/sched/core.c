@@ -4222,7 +4222,6 @@ change:
 
 	if (user) {
 #ifdef CONFIG_RT_GROUP_SCHED
-		int i;
 		if (dl_bandwidth_enabled() && rt_policy(policy) && !sched_rt_can_attach(task_group(p), p)) {
 			task_rq_unlock(rq, p, &rf);
 			return -EPERM;
@@ -6781,7 +6780,13 @@ static ssize_t cpu_rt_multi_runtime_write(struct kernfs_open_file *of,
 	cpumask_t mask;
 	char *cpu_s, *val_s;
 	long val;
-	int ret, cid;
+	int ret, cid, ret2;
+	long *old_rt_runtimes;
+	int n_cpu = num_possible_cpus();
+
+	old_rt_runtimes = kzalloc(n_cpu * sizeof(*old_rt_runtimes), GFP_KERNEL);
+	if (!old_rt_runtimes)
+		return -ENOMEM;
 
 	cpu_s = strsep(&buf, " ");
 	val_s = strsep(&buf, " ");
@@ -6797,13 +6802,35 @@ static ssize_t cpu_rt_multi_runtime_write(struct kernfs_open_file *of,
 	if (ret)
 		return ret;
 
+	ret = sched_group_rt_multi_runtime(css_tg(css), old_rt_runtimes, n_cpu);
+	if(ret)
+		return ret;
+
 	for_each_cpu(cid, &mask) {
 		ret = sched_group_set_rt_multi_runtime(css_tg(css), val, cid);
-		if (ret)
-			return ret;
+		if (ret) {
+
+			printk(KERN_DEBUG "fail scrittura, go to exit\n");
+			goto exit;
+		}
 	}
 
 	return nbytes;
+
+exit:
+	while(cid >= 0) {
+		if (cpumask_test_cpu(cid, &mask)) {
+			ret2 = sched_group_set_rt_multi_runtime(css_tg(css),
+				old_rt_runtimes[cid], cid);
+
+			printk(KERN_DEBUG "scrivo %ld in %d, ret: %d\n", old_rt_runtimes[cid],cid,ret2);
+		}
+		cid--;
+
+
+	}
+
+	return ret;
 }
 
 static int cpu_rt_period_write_uint(struct cgroup_subsys_state *css,
