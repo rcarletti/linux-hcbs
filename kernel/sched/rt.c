@@ -2159,20 +2159,15 @@ int sched_group_rt_multi_runtime(struct task_group *tg, long *rt_runtimes,
 {
 
 	int i;
-	if (!tg->dl_se) {
-			printk(KERN_INFO "ananas\n");
+	if (!tg->dl_se)
 			return -ENOMEM;
-	}
 
 	for_each_possible_cpu(i) {
 		if(size <= i)
 			return -ENOSPC;
 
-		if (!tg->dl_se[i]) {
-			printk(KERN_INFO "banana %d\n", i);
+		if (!tg->dl_se[i])
 			return -ENOMEM;
-
-		}
 
 		rt_runtimes[i] = tg->dl_se[i]->dl_runtime;
 		do_div(rt_runtimes[i], NSEC_PER_USEC);
