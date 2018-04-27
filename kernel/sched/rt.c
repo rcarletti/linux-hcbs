@@ -1479,7 +1479,7 @@ struct rt_rq *group_find_lock_rt_rq(struct task_struct *task,
 
 	BUG_ON(!is_dl_group(rt_rq));
 
-	for_each_possible_cpu(cpu) {
+	for_each_online_cpu(cpu) {
 		if (cpu == -1)
 			continue;
 		if (cpu == rq->cpu)
@@ -1577,6 +1577,7 @@ int group_pull_rt_task_from_group(struct rt_rq *this_rt_rq)
 	int this_cpu = this_rq->cpu, cpu, tries = 0, ret = 0;
 
 	this_dl_se = dl_group_of(this_rt_rq);
+	// TODO: for_each_online_cpu(cpu) ?
 	for_each_possible_cpu(cpu) {
 		if (cpu == -1)
 			continue;
