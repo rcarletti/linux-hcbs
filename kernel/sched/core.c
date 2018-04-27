@@ -6873,6 +6873,7 @@ static struct cftype cpu_legacy_files[] = {
 		.name = "rt_multi_runtime_us",
 		.seq_show = cpu_rt_multi_runtime_read,
 		.write = cpu_rt_multi_runtime_write,
+		.flags = CFTYPE_NOT_ON_ROOT,
 	},
 	{
 		.name = "rt_period_us",
