@@ -6772,6 +6772,8 @@ static int cpu_rt_multi_runtime_read(struct seq_file *sf, void *v)
 
 	seq_printf(sf, "\n");
 
+	kfree(rt_runtimes);
+
 	return 0;
 }
 
@@ -6813,6 +6815,7 @@ static ssize_t cpu_rt_multi_runtime_write(struct kernfs_open_file *of,
 			goto exit;
 	}
 
+	kfree(old_rt_runtimes);
 	return nbytes;
 
 exit:
@@ -6823,6 +6826,7 @@ exit:
 		}
 	}
 
+	kfree(old_rt_runtimes);
 	return ret;
 }
 
